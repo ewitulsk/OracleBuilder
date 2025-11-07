@@ -1,3 +1,8 @@
-# External endpoints that the enclave is allowed to access. 
+# External endpoints that the enclave is allowed to access.
+# 
+# NOTE: The unrestricted mode configuration bypasses this file entirely.
+# When configure_enclave.sh is run, it now sets up a Squid proxy on the parent
+# instance that allows the enclave to access ANY endpoint on the internet.
+# This file is kept for reference but is not used in the current configuration.
 endpoints:
   - api.twitter.com

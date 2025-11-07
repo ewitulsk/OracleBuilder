@@ -469,15 +469,43 @@ echo 'source $HOME/.cargo/env' >> /home/ec2-user/.bashrc
 EOF
 fi
 
-# Append endpoint configuration to the vsock-proxy YAML if endpoints were provided.
-if [ -n "$ENDPOINTS" ]; then
-    for ep in $ENDPOINTS; do
-        echo "echo \"- {address: $ep, port: 443}\" | sudo tee -a /etc/nitro_enclaves/vsock-proxy.yaml" >> user-data.sh
-    done
-fi
-
-# Continue the user-data script
+# Install and configure Squid proxy for unrestricted internet access
 cat <<'EOF' >> user-data.sh
+
+# Install Squid proxy for unrestricted internet access
+sudo yum install -y squid
+
+# Configure Squid to allow all traffic from localhost
+sudo tee /etc/squid/squid.conf > /dev/null <<'SQUID_EOF'
+# Allow localhost connections
+acl localnet src 127.0.0.0/8
+
+# Allow CONNECT for HTTPS
+acl SSL_ports port 443
+acl Safe_ports port 80
+acl Safe_ports port 443
+acl CONNECT method CONNECT
+
+# Deny CONNECT to non-SSL ports
+http_access deny CONNECT !SSL_ports
+
+# Allow localhost
+http_access allow localnet
+http_access allow localhost
+
+# Deny all other access
+http_access deny all
+
+# Squid listening port
+http_port 3128
+
+# Leave coredumps in the first cache dir
+coredump_dir /var/spool/squid
+SQUID_EOF
+
+# Start and enable Squid
+sudo systemctl start squid && sudo systemctl enable squid
+
 # Stop the allocator so we can modify its configuration
 sudo systemctl stop nitro-enclaves-allocator.service
 
@@ -490,92 +518,60 @@ sudo sed -r "s/^(\s*${MEM_KEY}\s*:\s*).*/\1${DEFAULT_MEM}/" -i "${ALLOCATOR_YAML
 # Restart the allocator with the updated memory configuration
 sudo systemctl start nitro-enclaves-allocator.service && sudo systemctl enable nitro-enclaves-allocator.service
 
-# Restart vsock-proxy processes for various endpoints.
+# Start single vsock-proxy to forward traffic to Squid proxy
+vsock-proxy 8100 127.0.0.1 3128 --config /etc/nitro_enclaves/vsock-proxy.yaml &
 EOF
 
-# Append additional vsock-proxy commands for each extra endpoint.
-if [ -n "$ENDPOINTS" ]; then
-    PORT=8101
-    for ep in $ENDPOINTS; do
-        echo "vsock-proxy $PORT $ep 443 --config /etc/nitro_enclaves/vsock-proxy.yaml &" >> user-data.sh
-        PORT=$((PORT+1))
-    done
-fi
-
 ###################################################################
-# Fix src/nautilus-server/run.sh to add endpoint + forwarders
+# Configure src/nautilus-server/run.sh for unrestricted proxy access
 ###################################################################
-ip=64
-endpoints_config=""
-for ep in $ENDPOINTS; do
-    endpoints_config="${endpoints_config}echo \"127.0.0.${ip}   ${ep}\" >> /etc/hosts"$'\n'
-    ip=$((ip+1))
-done
+echo "Configuring run.sh for unrestricted internet access via proxy..."
 
-echo "Adding the following endpoint configuration to src/nautilus-server/run.sh:"
-echo "$endpoints_config"
-
-# Remove any existing endpoint lines (except the first localhost line)
+# Remove any existing endpoint-specific lines
 if [[ "$(uname)" == "Darwin" ]]; then
-    # Remove only the IP mapping lines, preserving comments
+    # Remove endpoint-specific /etc/hosts entries
     sed -i '' '/echo "127.0.0.[0-9]*   .*" >> \/etc\/hosts/d' src/nautilus-server/run.sh
-    # Restore the localhost line if it was removed
+    # Remove endpoint-specific traffic forwarders
+    sed -i '' '/python3 \/traffic_forwarder.py 127.0.0.[0-9]* 443/d' src/nautilus-server/run.sh
+    
+    # Restore localhost entry if removed
     if ! grep -q "echo \"127.0.0.1   localhost\" > /etc/hosts" src/nautilus-server/run.sh; then
         sed -i '' '/# Add a hosts record/a\
 echo "127.0.0.1   localhost" > /etc/hosts' src/nautilus-server/run.sh
     fi
 else
-    # Remove only the IP mapping lines, preserving comments
+    # Remove endpoint-specific /etc/hosts entries
     sed -i '/echo "127.0.0.[0-9]*   .*" >> \/etc\/hosts/d' src/nautilus-server/run.sh
-    # Restore the localhost line if it was removed
+    # Remove endpoint-specific traffic forwarders
+    sed -i '/python3 \/traffic_forwarder.py 127.0.0.[0-9]* 443/d' src/nautilus-server/run.sh
+    
+    # Restore localhost entry if removed
     if ! grep -q "echo \"127.0.0.1   localhost\" > /etc/hosts" src/nautilus-server/run.sh; then
         sed -i '/# Add a hosts record/a\echo "127.0.0.1   localhost" > /etc/hosts' src/nautilus-server/run.sh
     fi
 fi
 
-# Add the new endpoint configuration
-tmp_hosts="/tmp/endpoints_config.txt"
-echo "$endpoints_config" > "$tmp_hosts"
+# Add proxy environment variables and single traffic forwarder for proxy
+proxy_config='# Set up proxy environment variables for unrestricted internet access
+export HTTP_PROXY=http://127.0.0.1:3128
+export HTTPS_PROXY=http://127.0.0.1:3128
 
-# Insert after the localhost line
-if [[ "$(uname)" == "Darwin" ]]; then
-    sed -i '' "/echo \"127.0.0.1   localhost\" > \/etc\/hosts/ r $tmp_hosts" src/nautilus-server/run.sh
-else
-    sed -i "/echo \"127.0.0.1   localhost\" > \/etc\/hosts/ r $tmp_hosts" src/nautilus-server/run.sh
-fi
-rm "$tmp_hosts"
+# Traffic-forwarder-block
+# Forward proxy traffic: localhost:3128 -> vsock CID 3:8100 (parent Squid proxy)
+python3 /traffic_forwarder.py 127.0.0.1 3128 3 8100 &'
 
-ip_forwarder=64
-port_forwarder=8101
-traffic_config=""
-for ep in $ENDPOINTS; do
-    traffic_config="${traffic_config}python3 /traffic_forwarder.py 127.0.0.${ip_forwarder} 443 3 ${port_forwarder} &"$'\n'
-    ip_forwarder=$((ip_forwarder+1))
-    port_forwarder=$((port_forwarder+1))
-done
-
-echo "Adding the following traffic forwarder configuration to src/nautilus-server/run.sh:"
-echo "$traffic_config"
-
-# Remove any existing traffic forwarder lines
-if [[ "$(uname)" == "Darwin" ]]; then
-    sed -i '' '/python3 \/traffic_forwarder.py/d' src/nautilus-server/run.sh
-else
-    sed -i '/python3 \/traffic_forwarder.py/d' src/nautilus-server/run.sh
-fi
-
-# Add the new traffic forwarder configuration
-tmp_traffic="/tmp/traffic_config.txt"
-echo "$traffic_config" > "$tmp_traffic"
+tmp_proxy="/tmp/proxy_config.txt"
+echo "$proxy_config" > "$tmp_proxy"
 
 if [[ "$(uname)" == "Darwin" ]]; then
-    sed -i '' "/# Traffic-forwarder-block/ r $tmp_traffic" src/nautilus-server/run.sh
+    # Insert proxy configuration after the /etc/hosts setup
+    sed -i '' "/cat \/etc\/hosts/r $tmp_proxy" src/nautilus-server/run.sh
 else
-    sed -i "/# Traffic-forwarder-block/ r $tmp_traffic" src/nautilus-server/run.sh
+    sed -i "/cat \/etc\/hosts/r $tmp_proxy" src/nautilus-server/run.sh
 fi
-rm "$tmp_traffic"
+rm "$tmp_proxy"
 
-echo "updated run.sh"
+echo "Updated run.sh for unrestricted internet access via proxy"
 
 # Add seal-specific vsock listener for port 3001
 if [ "$IS_SEAL_EXAMPLE" = true ]; then
