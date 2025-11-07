@@ -527,12 +527,20 @@ EOF
 ###################################################################
 echo "Configuring run.sh for unrestricted internet access via proxy..."
 
-# Remove any existing endpoint-specific lines
+# Remove any existing endpoint-specific lines and proxy configuration
 if [[ "$(uname)" == "Darwin" ]]; then
     # Remove endpoint-specific /etc/hosts entries
     sed -i '' '/echo "127.0.0.[0-9]*   .*" >> \/etc\/hosts/d' src/nautilus-server/run.sh
     # Remove endpoint-specific traffic forwarders
     sed -i '' '/python3 \/traffic_forwarder.py 127.0.0.[0-9]* 443/d' src/nautilus-server/run.sh
+    
+    # Remove existing proxy configuration to prevent duplicates
+    sed -i '' '/# Set up proxy environment variables for unrestricted internet access/d' src/nautilus-server/run.sh
+    sed -i '' '/export HTTP_PROXY=http:\/\/127.0.0.1:3128/d' src/nautilus-server/run.sh
+    sed -i '' '/export HTTPS_PROXY=http:\/\/127.0.0.1:3128/d' src/nautilus-server/run.sh
+    sed -i '' '/# Traffic-forwarder-block/d' src/nautilus-server/run.sh
+    sed -i '' '/# Forward proxy traffic: localhost:3128 -> vsock CID 3:8100 (parent Squid proxy)/d' src/nautilus-server/run.sh
+    sed -i '' '/python3 \/traffic_forwarder.py 127.0.0.1 3128 3 8100 &/d' src/nautilus-server/run.sh
     
     # Restore localhost entry if removed
     if ! grep -q "echo \"127.0.0.1   localhost\" > /etc/hosts" src/nautilus-server/run.sh; then
@@ -544,6 +552,14 @@ else
     sed -i '/echo "127.0.0.[0-9]*   .*" >> \/etc\/hosts/d' src/nautilus-server/run.sh
     # Remove endpoint-specific traffic forwarders
     sed -i '/python3 \/traffic_forwarder.py 127.0.0.[0-9]* 443/d' src/nautilus-server/run.sh
+    
+    # Remove existing proxy configuration to prevent duplicates
+    sed -i '/# Set up proxy environment variables for unrestricted internet access/d' src/nautilus-server/run.sh
+    sed -i '/export HTTP_PROXY=http:\/\/127.0.0.1:3128/d' src/nautilus-server/run.sh
+    sed -i '/export HTTPS_PROXY=http:\/\/127.0.0.1:3128/d' src/nautilus-server/run.sh
+    sed -i '/# Traffic-forwarder-block/d' src/nautilus-server/run.sh
+    sed -i '/# Forward proxy traffic: localhost:3128 -> vsock CID 3:8100 (parent Squid proxy)/d' src/nautilus-server/run.sh
+    sed -i '/python3 \/traffic_forwarder.py 127.0.0.1 3128 3 8100 &/d' src/nautilus-server/run.sh
     
     # Restore localhost entry if removed
     if ! grep -q "echo \"127.0.0.1   localhost\" > /etc/hosts" src/nautilus-server/run.sh; then

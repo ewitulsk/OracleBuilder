@@ -38,9 +38,6 @@ export HTTPS_PROXY=http://127.0.0.1:3128
 # Forward proxy traffic: localhost:3128 -> vsock CID 3:8100 (parent Squid proxy)
 python3 /traffic_forwarder.py 127.0.0.1 3128 3 8100 &
 
-# Set up proxy environment variables for unrestricted internet access
-export HTTP_PROXY=http://127.0.0.1:3128
-export HTTPS_PROXY=http://127.0.0.1:3128
 
 # Get a json blob with key/value pair for secrets
 JSON_RESPONSE=$(socat - VSOCK-LISTEN:7777,reuseaddr)
@@ -48,13 +45,6 @@ JSON_RESPONSE=$(socat - VSOCK-LISTEN:7777,reuseaddr)
 # This is shown as a example below. For production usecases, it's best to set the
 # keys explicitly rather than dynamically.
 echo "$JSON_RESPONSE" | jq -r 'to_entries[] | "\(.key)=\(.value)"' > /tmp/kvpairs ; while IFS="=" read -r key value; do export "$key"="$value"; done < /tmp/kvpairs ; rm -f /tmp/kvpairs
-
-# Run traffic forwarder in background and start the server
-# Forwards proxy traffic from enclave to parent's Squid proxy
-
-# Traffic-forwarder-block
-# Forward proxy traffic: localhost:3128 -> vsock CID 3:8100 (parent Squid proxy)
-python3 /traffic_forwarder.py 127.0.0.1 3128 3 8100 &
 
 
 

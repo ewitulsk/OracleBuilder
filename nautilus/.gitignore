@@ -1,7 +1,4 @@
 *.env
-user-data.sh
-trust-policy.json
-secrets-policy.json
 
 /move/enclave/build
 /move/*/build

@@ -2,10 +2,22 @@
 # SPDX-License-Identifier: Apache-2.0
 #!/bin/bash
 
+# Check if port 3000 is in use and kill the process
+if lsof -ti:3000 >/dev/null 2>&1; then
+    echo "Killing process on port 3000..."
+    kill -9 $(lsof -ti:3000) 2>/dev/null || true
+fi
+
 # Gets the enclave id and CID
 # expects there to be only one enclave running
 ENCLAVE_ID=$(nitro-cli describe-enclaves | jq -r ".[0].EnclaveID")
 ENCLAVE_CID=$(nitro-cli describe-enclaves | jq -r ".[0].EnclaveCID")
+
+# Validate enclave variables
+if [ -z "$ENCLAVE_ID" ] || [ -z "$ENCLAVE_CID" ]; then
+    echo "Error: Failed to get enclave information. ENCLAVE_ID or ENCLAVE_CID is null."
+    exit 1
+fi
 
 sleep 5
 # Secrets-block
