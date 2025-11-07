@@ -35,7 +35,17 @@ pub async fn process_data(
         "https://api.weatherapi.com/v1/current.json?key={}&q={}",
         state.api_key, request.payload.location
     );
-    let response = reqwest::get(url.clone()).await.map_err(|e| {
+    
+    // Create a client with explicit proxy configuration
+    let proxy = reqwest::Proxy::all("http://127.0.0.1:3128")
+        .map_err(|e| EnclaveError::GenericError(format!("Failed to configure proxy: {}", e)))?;
+    
+    let client = reqwest::Client::builder()
+        .proxy(proxy)
+        .build()
+        .map_err(|e| EnclaveError::GenericError(format!("Failed to build HTTP client: {}", e)))?;
+    
+    let response = client.get(&url).send().await.map_err(|e| {
         EnclaveError::GenericError(format!("Failed to get weather response: {}", e))
     })?;
     let json = response.json::<Value>().await.map_err(|e| {

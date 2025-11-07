@@ -499,6 +499,10 @@ http_access deny all
 # Squid listening port
 http_port 3128
 
+# DNS Configuration - Squid will handle DNS resolution for the enclave
+# Use Google DNS and AWS DNS
+dns_nameservers 8.8.8.8 8.8.4.4 169.254.169.253
+
 # Leave coredumps in the first cache dir
 coredump_dir /var/spool/squid
 SQUID_EOF
@@ -568,7 +572,12 @@ else
 fi
 
 # Add proxy environment variables and single traffic forwarder for proxy
-proxy_config='# Set up proxy environment variables for unrestricted internet access
+proxy_config='
+# Configure DNS resolver for the enclave
+echo "nameserver 8.8.8.8" > /etc/resolv.conf
+echo "nameserver 8.8.4.4" >> /etc/resolv.conf
+
+# Set up proxy environment variables for unrestricted internet access
 export HTTP_PROXY=http://127.0.0.1:3128
 export HTTPS_PROXY=http://127.0.0.1:3128
 

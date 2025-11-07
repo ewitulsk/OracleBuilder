@@ -38,6 +38,10 @@ http_access deny all
 # Squid listening port
 http_port 3128
 
+# DNS Configuration - Squid will handle DNS resolution for the enclave
+# Use Google DNS and AWS DNS
+dns_nameservers 8.8.8.8 8.8.4.4 169.254.169.253
+
 # Leave coredumps in the first cache dir
 coredump_dir /var/spool/squid
 SQUID_EOF
