@@ -30,6 +30,13 @@ echo "127.0.0.1   localhost" > /etc/hosts
 # == ATTENTION: code should be generated here that parses allowed_endpoints.yaml and populate domains here ===
 
 cat /etc/hosts
+# Set up proxy environment variables for unrestricted internet access
+export HTTP_PROXY=http://127.0.0.1:3128
+export HTTPS_PROXY=http://127.0.0.1:3128
+
+# Traffic-forwarder-block
+# Forward proxy traffic: localhost:3128 -> vsock CID 3:8100 (parent Squid proxy)
+python3 /traffic_forwarder.py 127.0.0.1 3128 3 8100 &
 
 # Set up proxy environment variables for unrestricted internet access
 export HTTP_PROXY=http://127.0.0.1:3128
